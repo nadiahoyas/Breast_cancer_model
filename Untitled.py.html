@@ -1,0 +1,301 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[1]:
+
+
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+import matplotlib.pyplot as plt
+import seaborn as sns
+sns.set()
+
+
+# # Preprocessing
+
+# In[2]:
+
+
+raw_data=pd.read_csv('data.csv')
+raw_data
+
+
+# In[3]:
+
+
+raw_data=raw_data.drop(['id'],axis=1)
+raw_data
+
+
+# In[4]:
+
+
+raw_data=raw_data.replace({'M':1, 'B':0})
+raw_data
+
+
+# In[ ]:
+
+
+
+
+
+# In[5]:
+
+
+num_one_targets=int(np.sum(raw_data['diagnosis']))
+zero_targets_counter=0
+indices_to_remove=[]
+
+
+# In[6]:
+
+
+raw_data['diagnosis'][0]
+
+
+# In[7]:
+
+
+for i in range(raw_data.shape[0]):
+    if raw_data['diagnosis'][i]==0:
+        zero_targets_counter+=1
+        if zero_targets_counter>num_one_targets:
+            indices_to_remove.append(i)
+
+
+# In[8]:
+
+
+raw_data_balanced=raw_data.copy()
+raw_data_balanced
+
+
+# In[9]:
+
+
+raw_data_balanced = raw_data_balanced.drop(indices_to_remove, axis=0)
+raw_data_balanced
+
+
+# In[10]:
+
+
+unscaled_inputs=raw_data_balanced.iloc[:,1:]
+unscaled_inputs
+
+
+# In[11]:
+
+
+unscaled_targets=raw_data_balanced.iloc[:,:1]
+unscaled_targets
+
+
+# # Scale data
+
+# In[12]:
+
+
+from sklearn import preprocessing
+
+
+# In[13]:
+
+
+scaled_inputs=preprocessing.scale(unscaled_inputs)
+scaled_inputs
+
+
+# # Shuffle data
+
+# In[14]:
+
+
+unscaled_targets_1 = unscaled_targets.to_numpy()
+
+
+# In[15]:
+
+
+shuffled_indices=np.arange(scaled_inputs.shape[0])
+np.random.shuffle(shuffled_indices)
+shuffled_inputs=scaled_inputs[shuffled_indices]
+
+
+# In[16]:
+
+
+shuffled_targets=unscaled_targets_1[shuffled_indices]
+
+
+# # Split the data
+
+# In[17]:
+
+
+sample_count=shuffled_inputs.shape[0]
+train_sample_count=int(0.8*sample_count)
+validation_sample_count=int(0.1*sample_count)
+test_sample_count=int(sample_count-train_sample_count-validation_sample_count)
+
+train_inputs=shuffled_inputs[:train_sample_count]
+train_targets=shuffled_targets[:train_sample_count]
+
+validation_inputs=shuffled_inputs[train_sample_count:train_sample_count+validation_sample_count]
+validation_targets=shuffled_targets[train_sample_count:train_sample_count+validation_sample_count]
+
+test_inputs=shuffled_inputs[train_sample_count+validation_sample_count:]
+test_targets=shuffled_targets[train_sample_count+validation_sample_count:]
+
+
+# In[18]:
+
+
+balance_1=np.sum(train_targets),train_sample_count, np.sum(train_targets)/train_sample_count
+balance_2=np.sum(validation_targets), validation_sample_count, np.sum(validation_targets/validation_sample_count)
+balance_3=np.sum(test_targets), test_sample_count, np.sum(test_targets)/test_sample_count
+print(balance_1, balance_2, balance_3)
+
+
+# #### In this case is balanced, but for the .py file we will have this extra bit of code:
+
+# 
+# num_one_targets_test=int(np.sum(test_targets))
+# zero_targets_counter_test=0
+# indices_to_remove_test=[]
+# for i in range(test_targets.shape[0]):
+#     if test_targets[i]==0:
+#         zero_targets_counter_test+=1
+#         if zero_targets_counter_test>num_one_targets_test:
+#             indices_to_remove_test.append(i)
+#     
+# test_data_balanced = np.delete(tes_inputs, indices_to_remove_test, axis =0)
+# 
+# indices_to_remove_test
+# test_data_balanced.shape
+# tes_inputs.shape
+
+# # Save dataset into a tensorflow friendly file
+
+# In[19]:
+
+
+np.savez('Breats_cancer_data_train', inputs=train_inputs, targets=train_targets)
+np.savez('Breast_cancer_data_validation', inputs=validation_inputs, targets=validation_targets)
+np.savez('Breast_cancer_data_test', inputs=test_inputs, targets=test_targets)
+
+
+# # Import dataset
+
+# In[20]:
+
+
+import tensorflow as tf
+
+
+# In[21]:
+
+
+npz=np.load('Breats_cancer_data_train.npz')
+#We need to make sure that all the inputs are floating
+#points, so we use the method astype for that
+train_inputs=npz['inputs'].astype(np.float)
+train_targets=npz['targets'].astype(np.int)
+
+npz=np.load('Breast_cancer_data_validation.npz')
+validation_inputs=npz['inputs'].astype(np.float)
+validation_targets=npz['targets'].astype(np.int)
+
+npz=np.load('Breast_cancer_data_test.npz')
+test_inputs=npz['inputs'].astype(np.float)
+test_targets=npz['targets'].astype(np.int)
+
+
+# # Model
+
+# In[22]:
+
+
+train_inputs.shape
+
+
+# In[23]:
+
+
+input_size=30
+output_size=2
+hidden_layer_size=50
+model=tf.keras.Sequential([
+                        
+                            tf.keras.layers.Dense(hidden_layer_size, activation='relu'),
+                            tf.keras.layers.Dense(hidden_layer_size, activation='relu'),
+                            tf.keras.layers.Dense(hidden_layer_size, activation='relu'),
+                            tf.keras.layers.Dense(hidden_layer_size, activation='softmax')
+                            ])
+model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+
+
+# In[24]:
+
+
+batch_size=100
+max_epochs=100
+early_stopping=tf.keras.callbacks.EarlyStopping(patience=2)
+model.fit(train_inputs,
+         train_targets,
+         batch_size=batch_size,
+         epochs=max_epochs,
+         validation_data=(validation_inputs, validation_targets),
+         validation_steps=1,
+         callbacks=[early_stopping],
+         verbose=2)
+
+
+# # Test model
+
+# In[25]:
+
+
+test_loss, test_accuracy=model.evaluate(test_inputs, test_targets)
+
+
+# In[26]:
+
+
+print('\nTest loss_: {0:.2f}. Test accuracy;{1:2f}%'.format(test_loss, test_accuracy*100))
+
+
+# # Save and load the model
+
+# In[27]:
+
+
+model.save('my_model.h5') 
+
+
+# In[28]:
+
+
+new_model = tf.keras.models.load_model('my_model.h5')
+new_model.summary()
+
+
+# In[31]:
+
+
+loss, acc = new_model.evaluate(test_inputs, test_targets, verbose=2)
+
+
+# In[30]:
+
+
+print('\nTest loss_: {0:.2f}. Test accuracy;{1:2f}%'.format(test_loss, test_accuracy*100))
+
+
+# In[ ]:
+
+
+
+
